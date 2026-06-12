@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Snake x Tetris Hybrid</title>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Outfit:wght@300;400;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="game-container">
+        <header class="game-header">
+            <h1>SNAKE <span class="accent">X</span> TETRIS</h1>
+            <p class="subtitle">Sự kết hợp độc đáo giữa Tetris và Apple Worm</p>
+        </header>
+
+        <div class="game-layout">
+            <!-- Main Game Area -->
+            <div class="canvas-wrapper">
+                <canvas id="gameCanvas" width="300" height="600"></canvas>
+            </div>
+
+            <!-- Sidebar Info -->
+            <div class="sidebar">
+                <div class="panel score-panel">
+                    <h2>ĐIỂM SỐ</h2>
+                    <div class="score-value" id="score">000000</div>
+                    <div class="stat-row">
+                        <span>Cấp độ:</span>
+                        <span id="level" class="stat-val">1</span>
+                    </div>
+                    <div class="stat-row">
+                        <span>Cấp độ đầu:</span>
+                        <select id="levelSelect" class="level-select">
+                            <option value="1" selected>1</option>
+                            <option value="2">2</option>
+                            <option value="3">3</option>
+                            <option value="4">4</option>
+                            <option value="5">5</option>
+                            <option value="6">6</option>
+                            <option value="7">7</option>
+                            <option value="8">8</option>
+                            <option value="9">9</option>
+                            <option value="10">10</option>
+                        </select>
+                    </div>
+                    <div class="stat-row">
+                        <span>Hàng đã xóa:</span>
+                        <span id="lines" class="stat-val">0</span>
+                    </div>
+                </div>
+
+                <div class="panel controls-panel">
+                    <h2>ĐIỀU KHIỂN</h2>
+                    <div class="control-key-list">
+                        <div class="control-item">
+                            <span class="key">A</span>
+                            <span class="key">D</span> hoặc 
+                            <span class="key">←</span>
+                            <span class="key">→</span>
+                            <span class="desc">Di chuyển Trái / Phải</span>
+                        </div>
+                        <div class="control-item">
+                            <span class="key">W</span> hoặc <span class="key">↑</span>
+                            <span class="desc">Xoay khối (Tetris style)</span>
+                        </div>
+                        <div class="control-item">
+                            <span class="key">S</span> hoặc <span class="key">↓</span>
+                            <span class="desc">Rơi nhanh (Soft Drop)</span>
+                        </div>
+                        <div class="control-item">
+                            <span class="key">Space</span>
+                            <span class="desc">Rơi ngay lập tức (Hard Drop)</span>
+                        </div>
+                        <div class="control-item">
+                            <span class="key">P</span> hoặc <span class="key">ESC</span>
+                            <span class="desc">Tạm dừng / Tiếp tục</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <footer class="game-footer">
+            <p>Thiết kế bởi Antigravity AI Engine &copy; 2026</p>
+        </footer>
+    </div>
+
+    <script src="game.js"></script>
+</body>
+</html>
