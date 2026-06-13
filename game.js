@@ -11,6 +11,73 @@
  * @version 1.6.0
  */
 
+class Particle {
+    constructor(x, y, color) {
+        this.x = x;
+        this.y = y;
+        this.color = color;
+        // Vận tốc văng ra ngẫu nhiên
+        const angle = Math.random() * Math.PI * 2;
+        const speed = Math.random() * 3 + 1; // 1 đến 4
+        this.vx = Math.cos(angle) * speed;
+        this.vy = Math.sin(angle) * speed;
+        this.gravity = 0.08; // Trọng lực nhẹ
+        this.maxLife = Math.floor(Math.random() * 21) + 30; // 30-50 frames
+        this.life = this.maxLife;
+        this.size = Math.random() * 3 + 2; // Kích thước 2-5px
+        this.alpha = 1;
+    }
+
+    update() {
+        this.x += this.vx;
+        this.y += this.vy;
+        this.vy += this.gravity;
+        this.life--;
+        this.alpha = Math.max(0, this.life / this.maxLife);
+    }
+
+    draw(ctx) {
+        ctx.save();
+        ctx.globalAlpha = this.alpha;
+        ctx.fillStyle = this.color;
+        ctx.shadowBlur = 6;
+        ctx.shadowColor = this.color;
+        ctx.beginPath();
+        const currentSize = this.size * this.alpha;
+        ctx.arc(this.x, this.y, currentSize, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+    }
+}
+
+class ParticleSystem {
+    constructor(ctx) {
+        this.ctx = ctx;
+        this.particles = [];
+    }
+
+    emit(x, y, color) {
+        const count = Math.floor(Math.random() * 6) + 10; // 10-15 hạt
+        for (let i = 0; i < count; i++) {
+            this.particles.push(new Particle(x, y, color));
+        }
+    }
+
+    update() {
+        for (let i = this.particles.length - 1; i >= 0; i--) {
+            const p = this.particles[i];
+            p.update();
+            if (p.life <= 0) {
+                this.particles.splice(i, 1);
+            }
+        }
+    }
+
+    draw() {
+        this.particles.forEach(p => p.draw(this.ctx));
+    }
+}
+
 class Game {
     constructor() {
         // 1. Thiết lập Canvas và Context
@@ -60,15 +127,22 @@ class Game {
         this.dropCounter = 0;
         this.dropInterval = 1000;
 
-        // 5. Trạng thái tạm dừng game
-        this.isPaused = false;
+        // 5. Trạng thái tạm dừng game và Cơ chế Lock Delay (Chờ khóa)
+        this.gameState = 'MENU'; // Trạng thái game: MENU, PLAYING, PAUSED, GAME_OVER
+        this.lockDelay = 500; // 0.5 giây
+        this.lockTimeCounter = 0;
+        this.isLocking = false;
+        this.lockResets = 0;
+        this.maxLockResets = 15;
 
         // 6. HUD elements
         this.scoreElement = document.getElementById('score');
+        this.highScoreElement = document.getElementById('highScore');
         this.levelElement = document.getElementById('level');
         this.linesElement = document.getElementById('lines');
         this.levelSelect = document.getElementById('levelSelect');
         this.score = 0;
+        this.highScore = parseInt(localStorage.getItem('snakeTetrisHighScore')) || 0;
         this.level = parseInt(this.levelSelect.value) || 1;
         this.lines = 0;
 
@@ -80,7 +154,11 @@ class Game {
             this.resetGame(parseInt(e.target.value));
         });
 
-        // 7. Đăng ký bộ lắng nghe sự kiện phím
+        // 7. Khởi tạo hệ thống hạt và đăng ký bộ lắng nghe sự kiện phím
+        this.particleSystem = new ParticleSystem(this.ctx);
+        this.ghostTrails = [];
+        this.shakeDuration = 0;
+        this.shakeMagnitude = 0;
         this.setupInputListener();
     }
 
@@ -88,11 +166,13 @@ class Game {
      * Khởi chạy trò chơi và Game Loop
      */
     start() {
+        this.gameState = 'MENU';
         this.apples = [];
         this.spawnSnake();
         for (let i = 0; i < 3; i++) {
             this.spawnApple();
         }
+        this.updateHUD();
         requestAnimationFrame((timestamp) => this.gameLoop(timestamp));
     }
 
@@ -101,16 +181,28 @@ class Game {
      */
     setupInputListener() {
         window.addEventListener('keydown', (event) => {
-            // Phím tạm dừng hoạt động độc lập bất kể trạng thái game
+            // Nhấn Enter để bắt đầu lại từ MENU hoặc GAME_OVER
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                if (this.gameState === 'MENU' || this.gameState === 'GAME_OVER') {
+                    this.resetGame();
+                    return;
+                }
+            }
+
+            // Phím ESC hoặc P để bật/tắt PAUSED (chỉ khi đang chơi hoặc đang dừng)
             if (event.key === 'p' || event.key === 'P' || event.key === 'Escape') {
                 event.preventDefault();
-                this.isPaused = !this.isPaused;
-                console.log(this.isPaused ? "Game Tạm dừng" : "Game Tiếp tục");
+                if (this.gameState === 'PLAYING') {
+                    this.gameState = 'PAUSED';
+                } else if (this.gameState === 'PAUSED') {
+                    this.gameState = 'PLAYING';
+                }
                 return;
             }
 
-            // Nếu game đang tạm dừng, chặn tất cả các tương tác phím khác
-            if (this.isPaused) {
+            // Nếu không phải đang chơi (PLAYING), chặn tất cả tương tác di chuyển rắn
+            if (this.gameState !== 'PLAYING') {
                 return;
             }
 
@@ -150,24 +242,71 @@ class Game {
         });
     }
 
-    /**
-     * Vòng lặp Game Loop chính của game
-     */
     gameLoop(timestamp) {
+        if (!this.lastTime) this.lastTime = timestamp;
         const deltaTime = timestamp - this.lastTime;
         this.lastTime = timestamp;
 
-        // Chỉ tích lũy thời gian rơi tự do nếu game đang chạy (không tạm dừng)
-        if (!this.isPaused) {
-            this.dropCounter += deltaTime;
+        // Chỉ xử lý logic nếu game đang chơi (PLAYING)
+        if (this.gameState === 'PLAYING') {
+            // Kiểm tra xem bề mặt dưới của Rắn có đang tiếp xúc với đáy/khối tĩnh hay không
+            const isBottomTouching = this.checkCollision(0, 1);
+            let justFrozen = false;
 
-            if (this.dropCounter >= this.dropInterval) {
-                this.moveDown();
-                this.dropCounter = 0;
+            if (isBottomTouching) {
+                if (!this.isLocking) {
+                    this.isLocking = true;
+                    if (this.lockResets >= this.maxLockResets) {
+                        this.lockTimeCounter = this.lockDelay;
+                    } else {
+                        this.lockTimeCounter = 0;
+                    }
+                } else {
+                    this.lockTimeCounter += deltaTime;
+                    if (this.lockTimeCounter >= this.lockDelay) {
+                        console.log("Hết thời gian chờ (Lock Delay) -> Đóng băng Rắn!");
+                        this.freezeSnake();
+                        this.isLocking = false;
+                        this.dropCounter = 0;
+                        justFrozen = true;
+                    }
+                }
+            } else {
+                // Nếu không còn chạm bề mặt dưới (ví dụ người chơi trườn ra khỏi gờ rơi xuống), reset cơ chế chờ
+                this.isLocking = false;
+                this.lockTimeCounter = 0;
+            }
+
+            if (!justFrozen) {
+                // Tích lũy thời gian rơi tự do (Trọng lực)
+                this.dropCounter += deltaTime;
+                if (this.dropCounter >= this.dropInterval) {
+                    this.moveDown();
+                    this.dropCounter = 0;
+                }
             }
         }
 
-        // Vẫn vẽ lại màn hình để hỗ trợ overlay Tạm dừng mượt mà
+        // Vẫn vẽ lại màn hình để hỗ trợ overlay Tạm dừng mượt mà và các trạng thái Menu, Game Over
+        this.particleSystem.update();
+
+        // Cập nhật bóng mờ (ghost trails)
+        if (this.ghostTrails) {
+            for (let i = this.ghostTrails.length - 1; i >= 0; i--) {
+                const trail = this.ghostTrails[i];
+                trail.life -= deltaTime;
+                if (trail.life <= 0) {
+                    this.ghostTrails.splice(i, 1);
+                }
+            }
+        }
+
+        // Cập nhật rung màn hình (screen shake)
+        if (this.shakeDuration > 0) {
+            this.shakeDuration -= deltaTime;
+            if (this.shakeDuration < 0) this.shakeDuration = 0;
+        }
+
         this.render();
         requestAnimationFrame((timestamp) => this.gameLoop(timestamp));
     }
@@ -181,9 +320,14 @@ class Game {
         const head = this.snake.segments[0];
         const newHead = { x: head.x + dx, y: head.y + dy };
 
-        // Kiểm tra điều kiện bị chặn
-        if (newHead.x < 0 || newHead.x >= this.cols || newHead.y < 0) {
-            console.log("Uốn éo bị chặn do đụng tường trái/phải/trên.");
+        // Kiểm tra điều kiện bị chặn biên hoặc khối tĩnh
+        if (newHead.x < 0 || newHead.x >= this.cols || newHead.y < 0 || newHead.y >= this.rows) {
+            console.log("Uốn éo bị chặn do đụng tường/đáy.");
+            return;
+        }
+
+        if (this.grid[newHead.y][newHead.x] !== 0) {
+            console.log("Uốn éo bị chặn do đụng khối tĩnh.");
             return;
         }
 
@@ -199,13 +343,6 @@ class Game {
             return;
         }
 
-        // Kiểm tra điều kiện đóng băng lập tức
-        if (newHead.y >= this.rows || this.grid[newHead.y][newHead.x] !== 0) {
-            console.log("Rắn uốn éo đụng đáy/khối tĩnh -> Đóng băng lập tức tại vị trí hiện tại!");
-            this.freezeSnake();
-            return;
-        }
-
         // Kiểm tra nếu ăn được Táo lơ lửng
         let ateApple = false;
         const appleIndex = this.apples.findIndex(apple => apple.x === newHead.x && apple.y === newHead.y);
@@ -216,6 +353,10 @@ class Game {
             this.score += 50 * this.level; // Cộng thêm điểm
             this.updateHUD();
             console.log("Rắn ăn Táo khi uốn éo! Độ dài tăng lên.");
+
+            const appleCanvasX = newHead.x * this.blockSize + this.blockSize / 2;
+            const appleCanvasY = newHead.y * this.blockSize + this.blockSize / 2;
+            this.particleSystem.emit(appleCanvasX, appleCanvasY, '#ef4444');
         }
 
         // Cập nhật vị trí mới theo cơ chế trượt của Snake
@@ -231,6 +372,14 @@ class Game {
         }
         
         this.snake.segments = newSegments;
+
+        // Khi người chơi trườn thành công, reset lock delay để thêm thời gian ứng biến (giới hạn số lần chống Infinity exploit)
+        if (this.isLocking) {
+            if (this.lockResets < this.maxLockResets) {
+                this.lockTimeCounter = 0;
+                this.lockResets++;
+            }
+        }
 
         // Hình phạt trọng lực đối với phím đi Lên (dy === -1): Ép buộc rơi 1 ô ngay lập tức
         if (dy === -1) {
@@ -256,6 +405,10 @@ class Game {
                 this.updateHUD();
                 console.log("Rắn ăn Táo khi đang rơi tự do! Độ dài tăng lên.");
 
+                const appleCanvasX = head.x * this.blockSize + this.blockSize / 2;
+                const appleCanvasY = nextHeadY * this.blockSize + this.blockSize / 2;
+                this.particleSystem.emit(appleCanvasX, appleCanvasY, '#ef4444');
+
                 // Lưu lại đuôi cũ trước khi dịch chuyển
                 const lastSeg = this.snake.segments[this.snake.segments.length - 1];
                 const oldTail = { x: lastSeg.x, y: lastSeg.y };
@@ -276,20 +429,68 @@ class Game {
             }
             return true;
         } else {
-            console.log("Rắn rơi chạm đáy/khối tĩnh -> Đóng băng lập tức tại vị trí hiện tại!");
-            this.freezeSnake();
+            // Không tự động freeze tức thời nữa. Việc freeze được quản lý bởi Lock Delay ở gameLoop.
             return false;
         }
     }
 
     /**
-     * Cho Rắn rơi thẳng xuống đáy lập tức
+     * Cho Rắn rơi thẳng xuống đáy lập tức và khóa ngay lập tức (Hard Drop)
      */
     hardDrop() {
-        while (this.moveDown()) {
-            // Rơi nguyên khối xuống đáy
+        const trailSegments = [];
+        // Cho rơi nguyên khối liên tục cho đến khi chạm bề mặt dưới
+        while (this.checkCollision(0, 1) === false) {
+            // Ghi nhận vị trí trước khi rơi để tạo bóng mờ
+            this.snake.segments.forEach(seg => {
+                trailSegments.push({ x: seg.x, y: seg.y });
+            });
+
+            const head = this.snake.segments[0];
+            const nextHeadY = head.y + 1;
+            const appleIndex = this.apples.findIndex(apple => apple.x === head.x && apple.y === nextHeadY);
+            if (appleIndex !== -1) {
+                this.apples.splice(appleIndex, 1);
+                this.spawnApple();
+                this.score += 50 * this.level;
+                this.updateHUD();
+
+                const appleCanvasX = head.x * this.blockSize + this.blockSize / 2;
+                const appleCanvasY = nextHeadY * this.blockSize + this.blockSize / 2;
+                this.particleSystem.emit(appleCanvasX, appleCanvasY, '#ef4444');
+
+                const lastSeg = this.snake.segments[this.snake.segments.length - 1];
+                const oldTail = { x: lastSeg.x, y: lastSeg.y };
+
+                for (const segment of this.snake.segments) {
+                    segment.y += 1;
+                }
+                this.snake.segments.push(oldTail);
+            } else {
+                for (const segment of this.snake.segments) {
+                    segment.y += 1;
+                }
+            }
         }
+
+        // Đẩy thông tin bóng mờ nếu rơi được
+        if (trailSegments.length > 0) {
+            this.ghostTrails.push({
+                segments: trailSegments,
+                color: this.snake.color,
+                life: 150, // Thời gian tồn tại vệt mờ: 150ms
+                maxLife: 150
+            });
+        }
+        
+        // Khóa tức thì khi nhấn Space (Hard Drop)
+        this.freezeSnake();
         this.dropCounter = 0;
+        this.isLocking = false;
+
+        // Kích hoạt rung màn hình (100ms, cường độ 6px)
+        this.shakeDuration = 100;
+        this.shakeMagnitude = 6;
     }
 
     /**
@@ -327,6 +528,11 @@ class Game {
 
         this.clearLines();
         this.spawnSnake();
+
+        // Đảm bảo reset trạng thái Lock Delay cho Rắn tiếp theo
+        this.isLocking = false;
+        this.lockTimeCounter = 0;
+        this.lockResets = 0;
     }
 
     /**
@@ -339,6 +545,14 @@ class Game {
             const isRowFull = this.grid[r].every(val => val !== 0);
 
             if (isRowFull) {
+                // Tạo hiệu ứng hạt nổ dọc theo hàng ngang bị xóa trước khi xóa dữ liệu grid
+                for (let c = 0; c < this.cols; c++) {
+                    const blockColor = this.grid[r][c];
+                    const px = c * this.blockSize + this.blockSize / 2;
+                    const py = r * this.blockSize + this.blockSize / 2;
+                    this.particleSystem.emit(px, py, blockColor);
+                }
+
                 this.grid.splice(r, 1);
                 this.grid.unshift(Array(this.cols).fill(0));
                 r++; 
@@ -362,7 +576,8 @@ class Game {
         // Loại bỏ táo bị trùng với khối tĩnh (do hàng dịch chuyển xuống) và bù táo mới
         if (this.apples) {
             this.apples = this.apples.filter(apple => this.grid[apple.y][apple.x] === 0);
-            while (this.apples.length < 3) {
+            const neededApples = 3 - this.apples.length;
+            for (let i = 0; i < neededApples; i++) {
                 this.spawnApple();
             }
         }
@@ -523,7 +738,9 @@ class Game {
         this.level = startLevel || parseInt(this.levelSelect.value) || 1;
         this.dropInterval = Math.max(150, 1000 - (this.level - 1) * 100);
         this.dropCounter = 0;
-        this.isPaused = false; // Bỏ tạm dừng khi reset
+        this.isLocking = false;
+        this.lockTimeCounter = 0;
+        this.lockResets = 0;
         
         this.nextSnake = null; // Reset hàng đợi preview Rắn tiếp theo
         this.apples = [];
@@ -534,14 +751,19 @@ class Game {
         for (let i = 0; i < 3; i++) {
             this.spawnApple();
         }
+        this.gameState = 'PLAYING';
     }
 
     /**
      * Xử lý khi Game Over
      */
     gameOver() {
-        alert("GAME OVER!\nĐiểm số của bạn: " + this.score);
-        this.resetGame();
+        this.gameState = 'GAME_OVER';
+        if (this.score > this.highScore) {
+            this.highScore = this.score;
+            localStorage.setItem('snakeTetrisHighScore', this.highScore);
+            this.updateHUD();
+        }
     }
 
     /**
@@ -549,6 +771,9 @@ class Game {
      */
     updateHUD() {
         this.scoreElement.textContent = String(this.score).padStart(6, '0');
+        if (this.highScoreElement) {
+            this.highScoreElement.textContent = String(this.highScore).padStart(6, '0');
+        }
         this.levelElement.textContent = this.level;
         this.linesElement.textContent = this.lines;
     }
@@ -557,6 +782,14 @@ class Game {
      * Vẽ toàn bộ bảng game, các khối và overlay tạm dừng lên Canvas
      */
     render() {
+        this.ctx.save();
+        // Áp dụng rung màn hình (Screen Shake)
+        if (this.shakeDuration > 0) {
+            const dx = (Math.random() - 0.5) * this.shakeMagnitude;
+            const dy = (Math.random() - 0.5) * this.shakeMagnitude;
+            this.ctx.translate(dx, dy);
+        }
+
         // 1. Xóa sạch Canvas
         this.ctx.fillStyle = '#0d1321';
         this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
@@ -597,37 +830,134 @@ class Game {
             });
         }
 
-        // 4. Vẽ Rắn hoạt động
-        this.snake.segments.forEach((segment, index) => {
-            const isHead = index === 0;
-            const color = isHead ? this.adjustBrightness(this.snake.color, 30) : this.snake.color;
-            this.drawBlock(segment.x, segment.y, color);
-
-            if (isHead) {
-                this.drawEyes(segment.x, segment.y);
-            }
-        });
-
-        // 5. Nếu game đang tạm dừng, vẽ màn hình phủ mờ neon "PAUSED"
-        if (this.isPaused) {
-            this.ctx.fillStyle = 'rgba(13, 19, 33, 0.75)'; // Phủ tối mờ
-            this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
-
-            // Vẽ chữ PAUSED phát sáng
-            this.ctx.font = 'bold 30px "Orbitron", sans-serif';
-            this.ctx.fillStyle = '#60a5fa';
-            this.ctx.shadowBlur = 12;
-            this.ctx.shadowColor = '#3b82f6';
-            this.ctx.textAlign = 'center';
-            this.ctx.textBaseline = 'middle';
-            this.ctx.fillText('PAUSED', this.canvas.width / 2, this.canvas.height / 2 - 20);
-
-            // Tắt shadow phát sáng để viết dòng phụ
-            this.ctx.shadowBlur = 0;
-            this.ctx.font = '300 13px "Outfit", sans-serif';
-            this.ctx.fillStyle = '#9ca3af';
-            this.ctx.fillText('Nhấn P hoặc ESC để tiếp tục', this.canvas.width / 2, this.canvas.height / 2 + 20);
+        // Vẽ các vệt bóng mờ (Ghost Trails) của Hard Drop
+        if (this.ghostTrails) {
+            this.ghostTrails.forEach(trail => {
+                const ratio = trail.life / trail.maxLife;
+                const alpha = 0.2 * ratio;
+                this.ctx.save();
+                this.ctx.globalAlpha = alpha;
+                this.ctx.fillStyle = trail.color;
+                
+                trail.segments.forEach(seg => {
+                    const px = seg.x * this.blockSize;
+                    const py = seg.y * this.blockSize;
+                    const pad = 1;
+                    this.ctx.fillRect(px + pad, py + pad, this.blockSize - pad * 2, this.blockSize - pad * 2);
+                });
+                this.ctx.restore();
+            });
         }
+
+        // 4. Vẽ Rắn hoạt động
+        if (this.snake && this.snake.segments) {
+            this.snake.segments.forEach((segment, index) => {
+                const isHead = index === 0;
+                const color = isHead ? this.adjustBrightness(this.snake.color, 30) : this.snake.color;
+                this.drawBlock(segment.x, segment.y, color);
+
+                if (isHead) {
+                    this.drawEyes(segment.x, segment.y);
+                }
+            });
+        }
+
+        // Vẽ hệ thống hạt
+        this.particleSystem.draw();
+
+        // 5. Vẽ Overlay dựa trên trạng thái game
+        if (this.gameState === 'MENU') {
+            this.renderMenuOverlay();
+        } else if (this.gameState === 'PAUSED') {
+            this.renderPausedOverlay();
+        } else if (this.gameState === 'GAME_OVER') {
+            this.renderGameOverOverlay();
+        }
+
+        this.ctx.restore();
+    }
+
+    /**
+     * Vẽ Overlay màn hình MENU
+     */
+    renderMenuOverlay() {
+        this.ctx.fillStyle = 'rgba(13, 19, 33, 0.85)';
+        this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+
+        this.ctx.font = 'bold 26px "Orbitron", sans-serif';
+        this.ctx.fillStyle = '#10b981';
+        this.ctx.shadowBlur = 15;
+        this.ctx.shadowColor = '#10b981';
+        this.ctx.textAlign = 'center';
+        this.ctx.textBaseline = 'middle';
+        this.ctx.fillText('SNAKE X TETRIS', this.canvas.width / 2, this.canvas.height / 2 - 50);
+
+        this.ctx.shadowBlur = 0;
+        this.ctx.font = '400 13px "Outfit", sans-serif';
+        this.ctx.fillStyle = '#9ca3af';
+        this.ctx.fillText('Sự kết hợp độc đáo', this.canvas.width / 2, this.canvas.height / 2 - 20);
+
+        this.ctx.font = 'bold 16px "Orbitron", sans-serif';
+        this.ctx.fillStyle = '#3b82f6';
+        this.ctx.shadowBlur = 10;
+        this.ctx.shadowColor = '#3b82f6';
+        this.ctx.fillText('NHẤN ENTER ĐỂ CHƠI', this.canvas.width / 2, this.canvas.height / 2 + 30);
+
+        this.ctx.shadowBlur = 0;
+        this.ctx.font = '300 12px "Outfit", sans-serif';
+        this.ctx.fillStyle = '#6b7280';
+        this.ctx.fillText('Di chuyển: Phím mũi tên / WASD', this.canvas.width / 2, this.canvas.height / 2 + 70);
+        this.ctx.fillText('Rơi ngay: Phím Space', this.canvas.width / 2, this.canvas.height / 2 + 90);
+    }
+
+    /**
+     * Vẽ Overlay màn hình TẠM DỪNG (PAUSED)
+     */
+    renderPausedOverlay() {
+        this.ctx.fillStyle = 'rgba(13, 19, 33, 0.75)';
+        this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+
+        this.ctx.font = 'bold 30px "Orbitron", sans-serif';
+        this.ctx.fillStyle = '#60a5fa';
+        this.ctx.shadowBlur = 12;
+        this.ctx.shadowColor = '#3b82f6';
+        this.ctx.textAlign = 'center';
+        this.ctx.textBaseline = 'middle';
+        this.ctx.fillText('PAUSED', this.canvas.width / 2, this.canvas.height / 2 - 20);
+
+        this.ctx.shadowBlur = 0;
+        this.ctx.font = '300 13px "Outfit", sans-serif';
+        this.ctx.fillStyle = '#9ca3af';
+        this.ctx.fillText('Nhấn P hoặc ESC để tiếp tục', this.canvas.width / 2, this.canvas.height / 2 + 20);
+    }
+
+    /**
+     * Vẽ Overlay màn hình GAME OVER
+     */
+    renderGameOverOverlay() {
+        this.ctx.fillStyle = 'rgba(13, 19, 33, 0.85)';
+        this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+
+        this.ctx.font = 'bold 32px "Orbitron", sans-serif';
+        this.ctx.fillStyle = '#ef4444';
+        this.ctx.shadowBlur = 15;
+        this.ctx.shadowColor = '#ef4444';
+        this.ctx.textAlign = 'center';
+        this.ctx.textBaseline = 'middle';
+        this.ctx.fillText('GAME OVER', this.canvas.width / 2, this.canvas.height / 2 - 50);
+
+        this.ctx.shadowBlur = 0;
+        this.ctx.font = '600 15px "Outfit", sans-serif';
+        this.ctx.fillStyle = '#f59e0b';
+        this.ctx.fillText(`Điểm số: ${this.score}`, this.canvas.width / 2, this.canvas.height / 2 - 15);
+        this.ctx.fillText(`Kỷ lục: ${this.highScore}`, this.canvas.width / 2, this.canvas.height / 2 + 10);
+
+        this.ctx.font = 'bold 15px "Orbitron", sans-serif';
+        this.ctx.fillStyle = '#10b981';
+        this.ctx.shadowBlur = 10;
+        this.ctx.shadowColor = '#10b981';
+        this.ctx.fillText('NHẤN ENTER ĐỂ CHƠI LẠI', this.canvas.width / 2, this.canvas.height / 2 + 55);
+        this.ctx.shadowBlur = 0;
     }
 
     /**
