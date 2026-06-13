@@ -16,6 +16,10 @@ class Game {
         // 1. Thiết lập Canvas và Context
         this.canvas = document.getElementById('gameCanvas');
         this.ctx = this.canvas.getContext('2d');
+        
+        // Canvas & Context cho ô preview Rắn tiếp theo
+        this.nextCanvas = document.getElementById('nextCanvas');
+        this.nextCtx = this.nextCanvas.getContext('2d');
 
         // Kích thước ô lưới (Block size) tính bằng pixel
         this.blockSize = 30;
@@ -30,6 +34,26 @@ class Game {
             segments: [],
             color: '#10b981'
         };
+        this.nextSnake = null;
+        this.apples = [];
+
+        // Các hình dáng/tư thế xuất hiện ngẫu nhiên ban đầu của Rắn (4 đốt)
+        this.templates = [
+            // Dạng thẳng ngang (I-Horizontal)
+            [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 2, y: 0 }, { x: 3, y: 0 }],
+            // Dạng thẳng đứng (I-Vertical)
+            [{ x: 0, y: 0 }, { x: 0, y: 1 }, { x: 0, y: 2 }, { x: 0, y: 3 }],
+            // Dạng chữ L xuôi
+            [{ x: 0, y: 0 }, { x: 0, y: 1 }, { x: 0, y: 2 }, { x: 1, y: 2 }],
+            // Dạng chữ L ngược
+            [{ x: 1, y: 0 }, { x: 1, y: 1 }, { x: 1, y: 2 }, { x: 0, y: 2 }],
+            // Dạng chữ Z
+            [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 1, y: 1 }, { x: 2, y: 1 }],
+            // Dạng chữ S
+            [{ x: 0, y: 1 }, { x: 1, y: 1 }, { x: 1, y: 0 }, { x: 2, y: 0 }],
+            // Dạng hình vuông (O-shape / Snake quấn vòng)
+            [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 1, y: 1 }, { x: 0, y: 1 }]
+        ];
 
         // 4. Thiết lập hệ thống Tick Rate cho Trọng lực (Fall Timer)
         this.lastTime = 0;
@@ -64,7 +88,11 @@ class Game {
      * Khởi chạy trò chơi và Game Loop
      */
     start() {
+        this.apples = [];
         this.spawnSnake();
+        for (let i = 0; i < 3; i++) {
+            this.spawnApple();
+        }
         requestAnimationFrame((timestamp) => this.gameLoop(timestamp));
     }
 
@@ -178,11 +206,30 @@ class Game {
             return;
         }
 
+        // Kiểm tra nếu ăn được Táo lơ lửng
+        let ateApple = false;
+        const appleIndex = this.apples.findIndex(apple => apple.x === newHead.x && apple.y === newHead.y);
+        if (appleIndex !== -1) {
+            ateApple = true;
+            this.apples.splice(appleIndex, 1);
+            this.spawnApple();
+            this.score += 50 * this.level; // Cộng thêm điểm
+            this.updateHUD();
+            console.log("Rắn ăn Táo khi uốn éo! Độ dài tăng lên.");
+        }
+
         // Cập nhật vị trí mới theo cơ chế trượt của Snake
         const newSegments = [newHead];
         for (let i = 1; i < this.snake.segments.length; i++) {
             newSegments.push({ x: this.snake.segments[i - 1].x, y: this.snake.segments[i - 1].y });
         }
+        
+        // Nếu ăn táo, giữ lại đốt đuôi cũ để tăng độ dài
+        if (ateApple) {
+            const lastSeg = this.snake.segments[this.snake.segments.length - 1];
+            newSegments.push({ x: lastSeg.x, y: lastSeg.y });
+        }
+        
         this.snake.segments = newSegments;
 
         // Hình phạt trọng lực đối với phím đi Lên (dy === -1): Ép buộc rơi 1 ô ngay lập tức
@@ -197,6 +244,33 @@ class Game {
      */
     moveDown() {
         if (!this.checkCollision(0, 1)) {
+            const head = this.snake.segments[0];
+            const nextHeadY = head.y + 1;
+            
+            // Kiểm tra nếu ăn được Táo lơ lửng khi đang rơi
+            const appleIndex = this.apples.findIndex(apple => apple.x === head.x && apple.y === nextHeadY);
+            if (appleIndex !== -1) {
+                this.apples.splice(appleIndex, 1);
+                this.spawnApple();
+                this.score += 50 * this.level;
+                this.updateHUD();
+                console.log("Rắn ăn Táo khi đang rơi tự do! Độ dài tăng lên.");
+
+                // Lưu lại đuôi cũ trước khi dịch chuyển
+                const lastSeg = this.snake.segments[this.snake.segments.length - 1];
+                const oldTail = { x: lastSeg.x, y: lastSeg.y };
+
+                // Dịch chuyển toàn bộ thân xuống 1 ô
+                for (const segment of this.snake.segments) {
+                    segment.y += 1;
+                }
+                
+                // Thêm lại đốt đuôi cũ để làm rắn dài ra
+                this.snake.segments.push(oldTail);
+                return true;
+            }
+
+            // Di chuyển bình thường
             for (const segment of this.snake.segments) {
                 segment.y += 1;
             }
@@ -284,10 +358,18 @@ class Game {
             this.dropInterval = Math.max(150, 1000 - (this.level - 1) * 100);
             this.updateHUD();
         }
+
+        // Loại bỏ táo bị trùng với khối tĩnh (do hàng dịch chuyển xuống) và bù táo mới
+        if (this.apples) {
+            this.apples = this.apples.filter(apple => this.grid[apple.y][apple.x] === 0);
+            while (this.apples.length < 3) {
+                this.spawnApple();
+            }
+        }
     }
 
     /**
-     * Tạo Rắn mới ở đỉnh với màu sắc ngẫu nhiên và đầu rắn ngẫu nhiên trái/phải
+     * Tạo Rắn mới ở đỉnh với màu sắc ngẫu nhiên và hình dáng ngẫu nhiên
      */
     spawnSnake() {
         const colors = [
@@ -300,36 +382,134 @@ class Game {
             '#06b6d4'  // Xanh ngọc neon
         ];
         
-        this.snake.color = colors[Math.floor(Math.random() * colors.length)];
-        
-        // 4 đốt thân nằm ngang ở hàng 0, cột 3, 4, 5, 6
-        const baseSegments = [
-            { x: 3, y: 0 },
-            { x: 4, y: 0 },
-            { x: 5, y: 0 },
-            { x: 6, y: 0 }
-        ];
+        // Helper tạo trạng thái Rắn ngẫu nhiên (chưa dịch chuyển vào bàn chơi)
+        const generateRandomSnakeState = () => {
+            const template = this.templates[Math.floor(Math.random() * this.templates.length)];
+            const color = colors[Math.floor(Math.random() * colors.length)];
+            
+            // Sao chép sâu tọa độ template
+            let segments = template.map(s => ({ ...s }));
+            
+            // Ngẫu nhiên đầu Rắn nằm ở đầu hoặc cuối danh sách đốt
+            const isReversed = Math.random() < 0.5;
+            if (isReversed) {
+                segments.reverse();
+            }
+            
+            return { segments, color };
+        };
 
-        // Ngẫu nhiên đầu Rắn nằm bên trái (x: 3) hoặc bên phải (x: 6)
-        const isHeadOnLeft = Math.random() < 0.5;
-        if (isHeadOnLeft) {
-            this.snake.segments = baseSegments; // Đầu ở x:3, đuôi ở x:6
-        } else {
-            this.snake.segments = baseSegments.reverse(); // Đầu ở x:6, đuôi ở x:3
+        // Khởi tạo nextSnake nếu chưa có
+        if (!this.nextSnake) {
+            this.nextSnake = generateRandomSnakeState();
         }
+
+        // Lấy thông tin từ nextSnake gán cho Rắn hiện tại
+        const currentSnakeState = this.nextSnake;
+        this.snake.color = currentSnakeState.color;
+
+        // Dịch chuyển Rắn hiện tại ra giữa đỉnh bàn chơi
+        const minX = Math.min(...currentSnakeState.segments.map(s => s.x));
+        const maxX = Math.max(...currentSnakeState.segments.map(s => s.x));
+        const width = maxX - minX + 1;
+        const startX = Math.floor((this.cols - width) / 2) - minX;
+
+        this.snake.segments = currentSnakeState.segments.map(s => ({
+            x: s.x + startX,
+            y: s.y
+        }));
+
+        // Sinh tiếp con Rắn kế tiếp cho lượt sau
+        this.nextSnake = generateRandomSnakeState();
+
+        // Vẽ preview Rắn tiếp theo
+        this.renderNext();
 
         // Kiểm tra kẹt khi vừa sinh ra
         let isSpawningBlocked = false;
         for (const segment of this.snake.segments) {
-            if (this.grid[segment.y][segment.x] !== 0) {
-                isSpawningBlocked = true;
-                break;
+            if (segment.y >= 0 && segment.y < this.rows && segment.x >= 0 && segment.x < this.cols) {
+                if (this.grid[segment.y][segment.x] !== 0) {
+                    isSpawningBlocked = true;
+                    break;
+                }
             }
         }
 
         if (isSpawningBlocked) {
             this.gameOver();
         }
+    }
+
+    /**
+     * Vẽ Rắn tiếp theo ở ô preview
+     */
+    renderNext() {
+        if (!this.nextSnake) return;
+
+        // Xóa sạch canvas preview
+        this.nextCtx.fillStyle = '#0d1321';
+        this.nextCtx.fillRect(0, 0, this.nextCanvas.width, this.nextCanvas.height);
+
+        // Vẽ lưới ô vuông mờ trong ô preview (5x5 ô để định hình)
+        const previewGridSize = 5;
+        const nextBlockSize = 20;
+        
+        // Bắt đầu vẽ các đốt của Rắn tiếp theo
+        const segments = this.nextSnake.segments;
+        const minX = Math.min(...segments.map(s => s.x));
+        const maxX = Math.max(...segments.map(s => s.x));
+        const minY = Math.min(...segments.map(s => s.y));
+        const maxY = Math.max(...segments.map(s => s.y));
+
+        const w = maxX - minX + 1;
+        const h = maxY - minY + 1;
+
+        // Căn giữa Rắn trong canvas 120x120
+        const offsetX = (this.nextCanvas.width - w * nextBlockSize) / 2 - minX * nextBlockSize;
+        const offsetY = (this.nextCanvas.height - h * nextBlockSize) / 2 - minY * nextBlockSize;
+
+        segments.forEach((segment, index) => {
+            const isHead = index === 0;
+            const color = isHead ? this.adjustBrightness(this.nextSnake.color, 30) : this.nextSnake.color;
+            
+            const px = segment.x * nextBlockSize + offsetX;
+            const py = segment.y * nextBlockSize + offsetY;
+            const pad = 1;
+
+            this.nextCtx.shadowBlur = 4;
+            this.nextCtx.shadowColor = color;
+            this.nextCtx.fillStyle = color;
+            this.nextCtx.fillRect(px + pad, py + pad, nextBlockSize - pad * 2, nextBlockSize - pad * 2);
+            this.nextCtx.shadowBlur = 0;
+
+            // Highlight viền trên và trái
+            this.nextCtx.fillStyle = 'rgba(255, 255, 255, 0.25)';
+            this.nextCtx.fillRect(px + pad, py + pad, nextBlockSize - pad * 2, 2);
+            this.nextCtx.fillRect(px + pad, py + pad, 2, nextBlockSize - pad * 2);
+
+            // Shadow viền dưới và phải
+            this.nextCtx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+            this.nextCtx.fillRect(px + pad, py + nextBlockSize - pad - 2, nextBlockSize - pad * 2, 2);
+            this.nextCtx.fillRect(px + nextBlockSize - pad - 2, py + pad, 2, nextBlockSize - pad * 2);
+
+            if (isHead) {
+                // Vẽ mắt nhỏ hơn tương ứng size preview
+                this.nextCtx.fillStyle = '#ffffff';
+                this.nextCtx.beginPath();
+                this.nextCtx.arc(px + 7, py + 8, 2, 0, Math.PI * 2);
+                this.nextCtx.fill();
+                this.nextCtx.beginPath();
+                this.nextCtx.arc(px + 13, py + 8, 2, 0, Math.PI * 2);
+                this.nextCtx.fill();
+
+                this.nextCtx.fillStyle = '#000000';
+                this.nextCtx.beginPath();
+                this.nextCtx.arc(px + 7, py + 8, 0.8, 0, Math.PI * 2);
+                this.nextCtx.arc(px + 13, py + 8, 0.8, 0, Math.PI * 2);
+                this.nextCtx.fill();
+            }
+        });
     }
 
     /**
@@ -345,8 +525,15 @@ class Game {
         this.dropCounter = 0;
         this.isPaused = false; // Bỏ tạm dừng khi reset
         
+        this.nextSnake = null; // Reset hàng đợi preview Rắn tiếp theo
+        this.apples = [];
+        
         this.updateHUD();
         this.spawnSnake();
+
+        for (let i = 0; i < 3; i++) {
+            this.spawnApple();
+        }
     }
 
     /**
@@ -401,6 +588,13 @@ class Game {
                     this.drawBlock(c, r, color);
                 }
             }
+        }
+
+        // Vẽ các quả táo lơ lửng trên không trung
+        if (this.apples) {
+            this.apples.forEach(apple => {
+                this.drawApple(apple.x, apple.y);
+            });
         }
 
         // 4. Vẽ Rắn hoạt động
@@ -504,6 +698,68 @@ class Game {
         this.ctx.arc(px + 10, py + 12, 1.2, 0, Math.PI * 2);
         this.ctx.arc(px + 20, py + 12, 1.2, 0, Math.PI * 2);
         this.ctx.fill();
+    }
+
+    /**
+     * Sinh một quả táo ngẫu nhiên trên ô lưới trống không trùng Rắn hoặc khối tĩnh
+     */
+    spawnApple() {
+        let attempts = 0;
+        while (attempts < 100) {
+            const rx = Math.floor(Math.random() * this.cols);
+            const ry = Math.floor(Math.random() * this.rows);
+
+            // Tránh sinh táo quá sát đỉnh đầu để người chơi kịp trở tay
+            if (ry < 3) {
+                attempts++;
+                continue;
+            }
+
+            // Kiểm tra trùng khối tĩnh
+            if (this.grid[ry][rx] !== 0) {
+                attempts++;
+                continue;
+            }
+
+            // Kiểm tra trùng Rắn hoạt động
+            const onSnake = this.snake.segments.some(s => s.x === rx && s.y === ry);
+            if (onSnake) {
+                attempts++;
+                continue;
+            }
+
+            // Kiểm tra trùng quả táo khác đã có
+            const onApple = this.apples.some(a => a.x === rx && a.y === ry);
+            if (onApple) {
+                attempts++;
+                continue;
+            }
+
+            this.apples.push({ x: rx, y: ry });
+            break;
+        }
+    }
+
+    /**
+     * Vẽ quả táo dạng hình tròn phát sáng neon đơn giản
+     */
+    drawApple(x, y) {
+        const px = x * this.blockSize;
+        const py = y * this.blockSize;
+        const radius = this.blockSize / 2 - 4;
+        const centerX = px + this.blockSize / 2;
+        const centerY = py + this.blockSize / 2;
+
+        this.ctx.shadowBlur = 10;
+        this.ctx.shadowColor = '#ef4444'; // Neon Red glow
+
+        // Vẽ hình tròn màu đỏ
+        this.ctx.fillStyle = '#ef4444';
+        this.ctx.beginPath();
+        this.ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+        this.ctx.fill();
+
+        this.ctx.shadowBlur = 0;
     }
 }
 
