@@ -25,73 +25,92 @@
 
             <!-- Sidebar Info -->
             <div class="sidebar">
+
+                <!-- Điểm số + Stats dạng lưới gọn -->
                 <div class="panel score-panel">
-                    <h2>ĐIỂM SỐ</h2>
-                    <div class="score-value" id="score">000000</div>
-                    <div class="stat-row">
-                        <span>Kỷ lục:</span>
-                        <span id="highScore" class="stat-val" style="color: #f59e0b; font-weight: bold;">000000</span>
+                    <div class="score-header-row">
+                        <span class="score-label">ĐIỂM SỐ</span>
+                        <div class="score-value" id="score">000000</div>
                     </div>
                     <div class="stat-row">
-                        <span>Cấp độ:</span>
-                        <span id="level" class="stat-val">1</span>
+                        <span>Kỷ lục</span>
+                        <span id="highScore" class="stat-val hi-score">000000</span>
                     </div>
-                    <div class="stat-row">
-                        <span>Cấp độ đầu:</span>
-                        <select id="levelSelect" class="level-select">
-                            <option value="1" selected>1</option>
-                            <option value="2">2</option>
-                            <option value="3">3</option>
-                            <option value="4">4</option>
-                            <option value="5">5</option>
-                            <option value="6">6</option>
-                            <option value="7">7</option>
-                            <option value="8">8</option>
-                            <option value="9">9</option>
-                            <option value="10">10</option>
-                        </select>
-                    </div>
-                    <div class="stat-row">
-                        <span>Hàng đã xóa:</span>
-                        <span id="lines" class="stat-val">0</span>
+                    <div class="stats-grid">
+                        <div class="mini-stat">
+                            <span class="mini-label">CẤP ĐỘ</span>
+                            <span id="level" class="mini-val">1</span>
+                        </div>
+                        <div class="mini-stat">
+                            <span class="mini-label">HÀNG XÓA</span>
+                            <span id="lines" class="mini-val">0</span>
+                        </div>
+                        <div class="mini-stat">
+                            <span class="mini-label">BẮT ĐẦU TỪ</span>
+                            <select id="levelSelect" class="level-select">
+                                <option value="1" selected>1</option>
+                                <option value="2">2</option>
+                                <option value="3">3</option>
+                                <option value="4">4</option>
+                                <option value="5">5</option>
+                                <option value="6">6</option>
+                                <option value="7">7</option>
+                                <option value="8">8</option>
+                                <option value="9">9</option>
+                                <option value="10">10</option>
+                            </select>
+                        </div>
                     </div>
                 </div>
 
-                <div class="panel next-panel">
-                    <h2>TIẾP THEO</h2>
-                    <div class="next-canvas-wrapper" style="display: flex; justify-content: center; margin-top: 5px;">
-                        <canvas id="nextCanvas" width="120" height="120"></canvas>
+                <!-- Preview Rắn tiếp theo + Trạng thái Khóa Tường (nằm ngang) -->
+                <div class="panel status-panel">
+                    <div class="status-grid">
+                        <div class="next-sub-panel">
+                            <h3>TIẾP THEO</h3>
+                            <div class="next-canvas-wrapper">
+                                <canvas id="nextCanvas" width="90" height="90"></canvas>
+                            </div>
+                        </div>
+                        <div class="wall-lock-sub-panel" id="wallLockPanel">
+                            <h3>KHÓA TƯỜNG</h3>
+                            <div class="wall-lock-status-row">
+                                <span id="wallLockStatus" class="wall-status-val" style="color: #10b981;">Bình thường</span>
+                            </div>
+                            <div id="wallLockDetails" class="wall-lock-detail">
+                                Đốt thẳng: 0/3
+                            </div>
+                        </div>
                     </div>
                 </div>
 
+                <!-- Điều khiển compact -->
                 <div class="panel controls-panel">
                     <h2>ĐIỀU KHIỂN</h2>
                     <div class="control-key-list">
                         <div class="control-item">
-                            <span class="key">A</span>
-                            <span class="key">D</span> hoặc 
-                            <span class="key">←</span>
-                            <span class="key">→</span>
+                            <div class="keys-group"><span class="key">←</span><span class="key">→</span></div>
                             <span class="desc">Di chuyển Trái / Phải</span>
                         </div>
                         <div class="control-item">
-                            <span class="key">W</span> hoặc <span class="key">↑</span>
-                            <span class="desc">Trườn lên (Bị phạt rơi 1 ô)</span>
+                            <div class="keys-group"><span class="key">↑</span></div>
+                            <span class="desc">Trườn lên (bị phạt rơi)</span>
                         </div>
                         <div class="control-item">
-                            <span class="key">S</span> hoặc <span class="key">↓</span>
-                            <span class="desc">Rơi nhanh (Soft Drop)</span>
+                            <div class="keys-group"><span class="key">↓</span></div>
+                            <span class="desc">Soft Drop</span>
                         </div>
                         <div class="control-item">
-                            <span class="key">Space</span>
-                            <span class="desc">Rơi ngay lập tức (Hard Drop)</span>
+                            <div class="keys-group"><span class="key">SPC</span></div>
+                            <span class="desc">Hard Drop</span>
                         </div>
                         <div class="control-item">
-                            <span class="key">P</span> hoặc <span class="key">ESC</span>
+                            <div class="keys-group"><span class="key">P</span></div>
                             <span class="desc">Tạm dừng / Tiếp tục</span>
                         </div>
                     </div>
                 </div>
+
             </div>
         </div>
 
