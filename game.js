@@ -11,11 +11,44 @@
  * @version 1.6.0
  */
 
-class Particle {
+class Shockwave {
     constructor(x, y, color) {
         this.x = x;
         this.y = y;
         this.color = color;
+        this.radius = 4;
+        this.maxRadius = 32;
+        this.life = 250; // 250ms
+        this.maxLife = 250;
+    }
+
+    update(deltaTime) {
+        this.life -= deltaTime;
+        if (this.life < 0) this.life = 0;
+        const progress = 1 - this.life / this.maxLife;
+        this.radius = 4 + (this.maxRadius - 4) * progress;
+    }
+
+    draw(ctx) {
+        const alpha = this.life / this.maxLife;
+        ctx.save();
+        ctx.globalAlpha = alpha;
+        ctx.strokeStyle = this.color;
+        ctx.lineWidth = 2;
+        ctx.shadowBlur = 0; // Luôn phẳng cho chế độ Lite
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+    }
+}
+
+class Particle {
+    constructor(x, y, color, liteMode = false) {
+        this.x = x;
+        this.y = y;
+        this.color = color;
+        this.liteMode = liteMode;
         // Vận tốc văng ra ngẫu nhiên
         const angle = Math.random() * Math.PI * 2;
         const speed = Math.random() * 3 + 1; // 1 đến 4
@@ -40,8 +73,10 @@ class Particle {
         ctx.save();
         ctx.globalAlpha = this.alpha;
         ctx.fillStyle = this.color;
-        ctx.shadowBlur = 6;
-        ctx.shadowColor = this.color;
+        if (!this.liteMode) {
+            ctx.shadowBlur = 6;
+            ctx.shadowColor = this.color;
+        }
         ctx.beginPath();
         const currentSize = this.size * this.alpha;
         ctx.arc(this.x, this.y, currentSize, 0, Math.PI * 2);
@@ -51,15 +86,21 @@ class Particle {
 }
 
 class ParticleSystem {
-    constructor(ctx) {
-        this.ctx = ctx;
+    constructor(game) {
+        this.game = game;
+        this.ctx = game.ctx;
         this.particles = [];
     }
 
     emit(x, y, color) {
+        if (this.game.liteMode) {
+            // Thay vì sinh hạt bụi nhiều, ta đổi thành vòng tròn lan tỏa (Shockwave)
+            this.game.shockwaves.push(new Shockwave(x, y, color));
+            return;
+        }
         const count = Math.floor(Math.random() * 6) + 10; // 10-15 hạt
         for (let i = 0; i < count; i++) {
-            this.particles.push(new Particle(x, y, color));
+            this.particles.push(new Particle(x, y, color, false));
         }
     }
 
@@ -154,13 +195,29 @@ class Game {
         // Tốc độ ban đầu dựa theo cấp độ chọn
         this.dropInterval = Math.max(150, 1000 - (this.level - 1) * 100);
 
+        // Trạng thái Lite Mode (tối ưu máy yếu)
+        this.liteMode = localStorage.getItem('snakeTetrisLiteMode') === 'true';
+        this.liteModeToggle = document.getElementById('liteModeToggle');
+        if (this.liteModeToggle) {
+            this.liteModeToggle.checked = this.liteMode;
+            this.liteModeToggle.addEventListener('change', (e) => {
+                this.liteMode = e.target.checked;
+                localStorage.setItem('snakeTetrisLiteMode', this.liteMode);
+            });
+        }
+
+        // Các hiệu ứng tối giản cho Lite Mode
+        this.shockwaves = []; // Chứa các vòng tròn lan tỏa
+        this.clearedRowFlashes = []; // Dòng đang nháy sáng khi xóa hàng
+        this.impactFlashOpacity = 0; // Độ mờ của viền lóe sáng khi va chạm
+
         // Lắng nghe thay đổi cấp độ bắt đầu trên UI
         this.levelSelect.addEventListener('change', (e) => {
             this.resetGame(parseInt(e.target.value));
         });
 
         // 7. Khởi tạo hệ thống hạt và đăng ký bộ lắng nghe sự kiện phím
-        this.particleSystem = new ParticleSystem(this.ctx);
+        this.particleSystem = new ParticleSystem(this);
         this.ghostTrails = [];
         this.shakeDuration = 0;
         this.shakeMagnitude = 0;
@@ -322,6 +379,23 @@ class Game {
                 }
             }
 
+            // Cập nhật vòng tròn lan tỏa (Shockwave)
+            if (this.shockwaves) {
+                for (let i = this.shockwaves.length - 1; i >= 0; i--) {
+                    const wave = this.shockwaves[i];
+                    wave.update(deltaTime);
+                    if (wave.life <= 0) {
+                        this.shockwaves.splice(i, 1);
+                    }
+                }
+            }
+
+            // Giảm độ mờ viền lóe sáng khi va chạm
+            if (this.impactFlashOpacity > 0) {
+                this.impactFlashOpacity -= deltaTime / 150;
+                if (this.impactFlashOpacity < 0) this.impactFlashOpacity = 0;
+            }
+
             // Cập nhật rung màn hình (screen shake)
             if (this.shakeDuration > 0) {
                 this.shakeDuration -= deltaTime;
@@ -401,6 +475,9 @@ class Game {
         
         this.snake.segments = newSegments;
 
+        // Quét táo bằng thân
+        this.sweepApples();
+
         // Khi người chơi trườn thành công, reset lock delay để thêm thời gian ứng biến (giới hạn số lần chống Infinity exploit)
         if (this.isLocking) {
             if (this.lockResets < this.maxLockResets) {
@@ -448,6 +525,7 @@ class Game {
                 
                 // Thêm lại đốt đuôi cũ để làm rắn dài ra
                 this.snake.segments.push(oldTail);
+                this.sweepApples();
                 return true;
             }
 
@@ -455,6 +533,7 @@ class Game {
             for (const segment of this.snake.segments) {
                 segment.y += 1;
             }
+            this.sweepApples();
             return true;
         } else {
             // Không tự động freeze tức thời nữa. Việc freeze được quản lý bởi Lock Delay ở gameLoop.
@@ -469,10 +548,12 @@ class Game {
         const trailSegments = [];
         // Cho rơi nguyên khối liên tục cho đến khi chạm bề mặt dưới
         while (this.checkCollision(0, 1) === false) {
-            // Ghi nhận vị trí trước khi rơi để tạo bóng mờ
-            this.snake.segments.forEach(seg => {
-                trailSegments.push({ x: seg.x, y: seg.y });
-            });
+            // Ghi nhận vị trí trước khi rơi để tạo bóng mờ (Chỉ ghi nhận khi không ở chế độ Lite)
+            if (!this.liteMode) {
+                this.snake.segments.forEach(seg => {
+                    trailSegments.push({ x: seg.x, y: seg.y });
+                });
+            }
 
             const head = this.snake.segments[0];
             const nextHeadY = head.y + 1;
@@ -499,10 +580,11 @@ class Game {
                     segment.y += 1;
                 }
             }
+            this.sweepApples();
         }
 
-        // Đẩy thông tin bóng mờ nếu rơi được
-        if (trailSegments.length > 0) {
+        // Đẩy thông tin bóng mờ nếu rơi được và không phải Lite Mode
+        if (trailSegments.length > 0 && !this.liteMode) {
             this.ghostTrails.push({
                 segments: trailSegments,
                 color: this.snake.color,
@@ -515,6 +597,10 @@ class Game {
         this.freezeSnake();
         this.dropCounter = 0;
         this.isLocking = false;
+
+        if (this.liteMode) {
+            this.impactFlashOpacity = 1.0;
+        }
 
         // Kích hoạt rung màn hình (100ms, cường độ 6px)
         this.shakeDuration = 100;
@@ -542,6 +628,35 @@ class Game {
             }
         }
         return false;
+    }
+
+    /**
+     * Quét sạch táo nếu trùng với bất kỳ đốt thân nào của rắn (trừ đầu)
+     */
+    sweepApples() {
+        if (!this.snake || !this.snake.segments || this.snake.segments.length <= 1) return;
+        
+        let swept = false;
+        // Kiểm tra xem có quả táo nào trùng với tọa độ thân rắn (từ index 1 trở đi) không
+        for (let i = this.apples.length - 1; i >= 0; i--) {
+            const apple = this.apples[i];
+            const isCollidingWithBody = this.snake.segments.slice(1).some(seg => seg.x === apple.x && seg.y === apple.y);
+            
+            if (isCollidingWithBody) {
+                // Xoá táo
+                this.apples.splice(i, 1);
+                this.spawnApple();
+                swept = true;
+                
+                // Hiệu ứng hạt bụi màu hồng nhạt khi thân quét mất táo
+                const appleCanvasX = apple.x * this.blockSize + this.blockSize / 2;
+                const appleCanvasY = apple.y * this.blockSize + this.blockSize / 2;
+                this.particleSystem.emit(appleCanvasX, appleCanvasY, '#f87171');
+            }
+        }
+        if (swept) {
+            console.log("Thân rắn quét qua táo! Táo bị biến mất không tính điểm.");
+        }
     }
 
     /**
@@ -651,12 +766,24 @@ class Game {
             const isRowFull = this.grid[r].every(val => val !== 0);
 
             if (isRowFull) {
-                // Tạo hiệu ứng hạt nổ dọc theo hàng ngang bị xóa trước khi xóa dữ liệu grid
-                for (let c = 0; c < this.cols; c++) {
-                    const blockColor = this.grid[r][c];
-                    const px = c * this.blockSize + this.blockSize / 2;
-                    const py = r * this.blockSize + this.blockSize / 2;
-                    this.particleSystem.emit(px, py, blockColor === 'ROCK' ? '#888888' : blockColor);
+                if (this.liteMode) {
+                    // Lưu hàng Y bị xóa để tạo flash trắng đè lên (3 khung hình)
+                    this.clearedRowFlashes.push({
+                        y: r * this.blockSize,
+                        life: 3
+                    });
+                    // Sinh 1 vòng tròn lan tỏa duy nhất ở giữa hàng bị xóa
+                    const midX = (this.cols * this.blockSize) / 2;
+                    const midY = r * this.blockSize + this.blockSize / 2;
+                    this.particleSystem.emit(midX, midY, '#ffffff');
+                } else {
+                    // Tạo hiệu ứng hạt nổ dọc theo hàng ngang bị xóa trước khi xóa dữ liệu grid
+                    for (let c = 0; c < this.cols; c++) {
+                        const blockColor = this.grid[r][c];
+                        const px = c * this.blockSize + this.blockSize / 2;
+                        const py = r * this.blockSize + this.blockSize / 2;
+                        this.particleSystem.emit(px, py, blockColor === 'ROCK' ? '#888888' : blockColor);
+                    }
                 }
 
                 this.grid.splice(r, 1);
@@ -749,6 +876,8 @@ class Game {
             y: s.y
         }));
 
+        this.sweepApples();
+
         // Sinh tiếp con Rắn kế tiếp cho lượt sau
         this.nextSnake = generateRandomSnakeState();
 
@@ -804,11 +933,15 @@ class Game {
             const py = segment.y * nextBlockSize + offsetY;
             const pad = 1;
 
-            this.nextCtx.shadowBlur = 4;
-            this.nextCtx.shadowColor = color;
+            if (!this.liteMode) {
+                this.nextCtx.shadowBlur = 4;
+                this.nextCtx.shadowColor = color;
+            }
             this.nextCtx.fillStyle = color;
             this.nextCtx.fillRect(px + pad, py + pad, nextBlockSize - pad * 2, nextBlockSize - pad * 2);
-            this.nextCtx.shadowBlur = 0;
+            if (!this.liteMode) {
+                this.nextCtx.shadowBlur = 0;
+            }
 
             // Highlight viền trên và trái
             this.nextCtx.fillStyle = 'rgba(255, 255, 255, 0.25)';
@@ -858,6 +991,11 @@ class Game {
         this.isPunished = false;
         this.linesToClearToUnlock = 0;
         this.upSpamCount = 0;
+
+        // Reset các hiệu ứng Lite Mode
+        this.shockwaves = [];
+        this.clearedRowFlashes = [];
+        this.impactFlashOpacity = 0;
 
         this.level = startLevel || parseInt(this.levelSelect.value) || 1;
         this.dropInterval = Math.max(150, 1000 - (this.level - 1) * 100);
@@ -1013,6 +1151,30 @@ class Game {
         // Vẽ hệ thống hạt
         this.particleSystem.draw();
 
+        // Vẽ các vòng tròn lan tỏa (Shockwaves) trong chế độ Lite
+        if (this.shockwaves) {
+            this.shockwaves.forEach(wave => wave.draw(this.ctx));
+        }
+
+        // Vẽ hiệu ứng nháy hàng nhanh (Fast Row Flash) khi xóa hàng trong chế độ Lite
+        if (this.liteMode && this.clearedRowFlashes) {
+            this.clearedRowFlashes.forEach(flash => {
+                this.ctx.fillStyle = `rgba(255, 255, 255, ${0.25 * flash.life})`;
+                this.ctx.fillRect(0, flash.y, this.canvas.width, this.blockSize);
+                flash.life--;
+            });
+            this.clearedRowFlashes = this.clearedRowFlashes.filter(flash => flash.life > 0);
+        }
+
+        // Vẽ viền nhấp nháy khi Hard Drop va chạm trong chế độ Lite
+        if (this.liteMode && this.impactFlashOpacity > 0) {
+            this.ctx.save();
+            this.ctx.strokeStyle = `rgba(96, 165, 250, ${this.impactFlashOpacity * 0.7})`;
+            this.ctx.lineWidth = 6;
+            this.ctx.strokeRect(0, 0, this.canvas.width, this.canvas.height);
+            this.ctx.restore();
+        }
+
         // 5. Vẽ Overlay dựa trên trạng thái game
         if (this.gameState === 'MENU') {
             this.renderMenuOverlay();
@@ -1143,13 +1305,17 @@ class Game {
         const py = y * this.blockSize;
         const pad = 1;
 
-        this.ctx.shadowBlur = 4;
-        this.ctx.shadowColor = color;
+        if (!this.liteMode) {
+            this.ctx.shadowBlur = 4;
+            this.ctx.shadowColor = color;
+        }
 
         this.ctx.fillStyle = color;
         this.ctx.fillRect(px + pad, py + pad, this.blockSize - pad * 2, this.blockSize - pad * 2);
 
-        this.ctx.shadowBlur = 0;
+        if (!this.liteMode) {
+            this.ctx.shadowBlur = 0;
+        }
 
         this.ctx.fillStyle = 'rgba(255, 255, 255, 0.25)';
         this.ctx.fillRect(px + pad, py + pad, this.blockSize - pad * 2, 3);
@@ -1169,14 +1335,18 @@ class Game {
         const pad = 1;
 
         // Hiệu ứng đổ bóng mờ màu xám đá
-        this.ctx.shadowBlur = 4;
-        this.ctx.shadowColor = '#4b5563';
+        if (!this.liteMode) {
+            this.ctx.shadowBlur = 4;
+            this.ctx.shadowColor = '#4b5563';
+        }
 
         // Màu đá nền: Xám đậm trung tính
         this.ctx.fillStyle = '#4b5563';
         this.ctx.fillRect(px + pad, py + pad, this.blockSize - pad * 2, this.blockSize - pad * 2);
 
-        this.ctx.shadowBlur = 0;
+        if (!this.liteMode) {
+            this.ctx.shadowBlur = 0;
+        }
 
         // Vẽ viền trong mảnh màu xám nhạt để tạo chiều sâu khối hộp tối giản
         this.ctx.strokeStyle = '#9ca3af';
@@ -1262,8 +1432,10 @@ class Game {
         const centerX = px + this.blockSize / 2;
         const centerY = py + this.blockSize / 2;
 
-        this.ctx.shadowBlur = 10;
-        this.ctx.shadowColor = '#ef4444'; // Neon Red glow
+        if (!this.liteMode) {
+            this.ctx.shadowBlur = 10;
+            this.ctx.shadowColor = '#ef4444'; // Neon Red glow
+        }
 
         // Vẽ hình tròn màu đỏ
         this.ctx.fillStyle = '#ef4444';
@@ -1271,7 +1443,9 @@ class Game {
         this.ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
         this.ctx.fill();
 
-        this.ctx.shadowBlur = 0;
+        if (!this.liteMode) {
+            this.ctx.shadowBlur = 0;
+        }
     }
 }
 

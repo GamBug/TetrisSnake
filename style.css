@@ -315,24 +315,30 @@ canvas {
 
 /* ─── Level Select ─── */
 .level-select {
-    background: rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.12);
     border: 1px solid var(--border-color);
     border-radius: 5px;
     color: var(--text-primary);
     font-family: 'Orbitron', sans-serif;
-    font-size: 0.85rem;
+    font-size: 0.95rem;
     font-weight: bold;
-    padding: 1px 4px;
+    padding: 3px 6px;
     outline: none;
     cursor: pointer;
     width: 100%;
     text-align: center;
-    transition: border-color 0.2s, box-shadow 0.2s;
+    transition: border-color 0.2s, box-shadow 0.2s, background-color 0.2s;
+}
+
+.level-select:hover {
+    border-color: var(--accent-neon);
+    background: rgba(255, 255, 255, 0.18);
+    box-shadow: 0 0 8px rgba(96, 165, 250, 0.4);
 }
 
 .level-select:focus {
     border-color: var(--accent-neon);
-    box-shadow: 0 0 5px rgba(96, 165, 250, 0.5);
+    box-shadow: 0 0 10px rgba(96, 165, 250, 0.6);
 }
 
 .level-select option {
@@ -380,4 +386,62 @@ canvas {
     .stats-grid {
         grid-template-columns: 1fr 1fr;
     }
+}
+
+/* Lite Mode Toggle Styling */
+.lite-mode-row {
+    margin-top: 14px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border-color);
+}
+.lite-mode-label {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 0.82rem;
+    font-family: 'Orbitron', sans-serif;
+    color: var(--text-primary);
+    cursor: pointer;
+    user-select: none;
+    letter-spacing: 0.5px;
+    transition: color 0.2s;
+}
+.lite-mode-label:hover {
+    color: var(--accent-neon);
+}
+.lite-mode-label input[type="checkbox"] {
+    appearance: none;
+    -webkit-appearance: none;
+    width: 44px;
+    height: 24px;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 12px;
+    position: relative;
+    outline: none;
+    cursor: pointer;
+    transition: background 0.3s, border-color 0.3s, box-shadow 0.3s;
+    border: 1px solid var(--border-color);
+}
+.lite-mode-label input[type="checkbox"]:hover {
+    border-color: var(--accent-neon);
+    box-shadow: 0 0 8px rgba(96, 165, 250, 0.4);
+}
+.lite-mode-label input[type="checkbox"]:checked {
+    background: var(--accent-neon);
+    border-color: var(--accent-neon);
+    box-shadow: 0 0 10px rgba(96, 165, 250, 0.5);
+}
+.lite-mode-label input[type="checkbox"]::before {
+    content: '';
+    position: absolute;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: #fff;
+    top: 2px;
+    left: 2px;
+    transition: transform 0.3s;
+}
+.lite-mode-label input[type="checkbox"]:checked::before {
+    transform: translateX(20px);
 }
